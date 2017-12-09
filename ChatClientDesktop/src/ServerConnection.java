@@ -13,6 +13,17 @@ public class ServerConnection {
     private DataInputStream dataInputStream;
     private DataOutputStream dataOutputStream;
 
+    private String ip;
+    private String port;
+
+    public String getIp() {
+        return ip;
+    }
+
+    public String getPort() {
+        return port;
+    }
+
     public boolean connect(String ipServer, String port) {
         try {
             socket = new Socket();
@@ -38,6 +49,8 @@ public class ServerConnection {
             return false;
         }
 
+        this.ip = ipServer;
+        this.port = port;
         return true;
     }
 

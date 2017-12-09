@@ -1,9 +1,12 @@
+import javax.xml.bind.DatatypeConverter;
 import java.io.*;
 import java.net.Socket;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalTime;
@@ -28,8 +31,8 @@ public class MessagingService extends Thread {
     public static final int RESPONSE_REGISTRATION_ERROR_USER_CREATED = 101;
     public static final int RESPONSE_REGISTRATION_OK = 102;
     public static final int RESPONSE_AUTHORIZATION_ERROR_DATA_CORRECT = 200;
-    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_NOTCREATED = 201;
-    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_AUTORIZED = 202;
+    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_NOT_CREATED = 201;
+    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_AUTHORIZED = 202;
     public static final int RESPONSE_AUTHORIZATION_OK = 203;
     public static final int RESPONSE_ERROR_CODE = 402;
 
@@ -67,25 +70,25 @@ public class MessagingService extends Thread {
     }
 
     public static String readResource(String path) throws URISyntaxException, IOException {
-
-        // работает только в src
-//        URL url = ClassLoader.getSystemResource(path);
-//        URL url = Main.class.getResource(path);
-//        URL url = ClassLoader.getSystemClassLoader().getResource(path);
-//        Path p = Paths.get(url.toURI());
-
-        Path p = Paths.get(path); // работает как на уровне src так и под ним
+        Path p = Paths.get(path);
         return new String(Files.readAllBytes(p), "UTF8");
     }
 
     @Override
     public void run() {
+        MessageDigest crypt = null;
+        try {
+            crypt = MessageDigest.getInstance("MD5");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
         while (true) {
             try {
                 String cmd = dataInputStream.readUTF();
 
                 boolean OK = false;
-                String[] parts = cmd.split("&");
+                String[] parts = cmd.split("&&&");
                 if (parts.length != 4) {
                     sendResponse(RESPONSE_ERROR_CODE);
                     continue;
@@ -96,29 +99,49 @@ public class MessagingService extends Thread {
                 String nickname = parts[1];
                 String pass = parts[2];
 
+                if (email.isEmpty() || nickname.isEmpty() || pass.isEmpty()) {
+                    sendResponse(RESPONSE_ERROR_CODE);
+                    continue;
+                }
+
+                crypt.update((pass + "HG0J154GA2EQ45").getBytes());
+                byte[] passMD5 = crypt.digest();
+                pass = DatatypeConverter.printHexBinary(passMD5).toUpperCase();
+
                 // query select
+                User user = null;
                 boolean userIsCreated = false;
+                try {
+                    System.out.println(nickname + pass + email);
+                    user = userDAO.validateUser(nickname, pass, email);
+                    if (user != null)
+                        userIsCreated = true;
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
 
                 switch (intent) {
                     case REQUEST_REGISTRATION:
                         try {
-                            int res = userDAO.addUser(nickname, pass, email);
-                            if (res == 0) {
-                                sendResponse(RESPONSE_REGISTRATION_OK);
+                            if (userIsCreated) {
+                                sendResponse(RESPONSE_REGISTRATION_ERROR_USER_CREATED);
+                            } else {
+                                int res = userDAO.addUser(nickname, pass, email);
+                                if (res == 0) {
+                                    sendResponse(RESPONSE_REGISTRATION_OK);
+                                }
                             }
                         } catch (SQLException e) {
                             e.printStackTrace();
+                            sendResponse(RESPONSE_ERROR_CODE);
                         }
                         break;
                     case REQUEST_AUTHORIZATION:
-                        try {
-                            User user = userDAO.validateUser(nickname, pass, email);
-                            if (user != null) {
-                                sendResponse(RESPONSE_AUTHORIZATION_OK);
-                                OK = true;
-                            }
-                        } catch (SQLException e) {
-                            e.printStackTrace();
+                        if (userIsCreated) {
+                            sendResponse(RESPONSE_AUTHORIZATION_OK);
+                            OK = true;
+                        } else {
+                            sendResponse(RESPONSE_AUTHORIZATION_ERROR_USER_NOT_CREATED);
                         }
                         break;
                     default:

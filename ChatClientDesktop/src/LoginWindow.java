@@ -2,10 +2,13 @@ import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
 
 import javax.swing.*;
+import javax.xml.bind.DatatypeConverter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public class LoginWindow extends JFrame {
 
@@ -21,20 +24,27 @@ public class LoginWindow extends JFrame {
     public static final int RESPONSE_REGISTRATION_ERROR_USER_CREATED = 101;
     public static final int RESPONSE_REGISTRATION_OK = 102;
     public static final int RESPONSE_AUTHORIZATION_ERROR_DATA_CORRECT = 200;
-    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_NOTCREATED = 201;
-    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_AUTORIZED = 202;
+    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_NOT_CREATED = 201;
+    public static final int RESPONSE_AUTHORIZATION_ERROR_USER_AUTHORIZED = 202;
     public static final int RESPONSE_AUTHORIZATION_OK = 203;
     public static final int RESPONSE_ERROR_CODE = 402;
 
     public static final int REQUEST_REGISTRATION = 1;
     public static final int REQUEST_AUTHORIZATION = 2;
 
-    public static final int RESPONSE_TIMEOUT = 3000;
+    private MessageDigest crypt;
+
+    private boolean reconnectFlag = false;
 
     public LoginWindow(String title, ServerConnection serverConnection) throws HeadlessException {
         super(title);
         this.serverConnection = serverConnection;
         setupUI();
+        try {
+            crypt = MessageDigest.getInstance("MD5");
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
     }
 
     private void setupUI() {
@@ -79,7 +89,7 @@ public class LoginWindow extends JFrame {
     }
 
     private void request(int cmd, String email, String nickname, String pass) throws IOException {
-        serverConnection.getDataOutputStream().writeUTF(email + "&" + nickname + "&" + pass + "&" + String.valueOf(cmd));
+        serverConnection.getDataOutputStream().writeUTF(email + "&&&" + nickname + "&&&" + pass + "&&&" + String.valueOf(cmd));
         serverConnection.getDataOutputStream().flush();
     }
 
@@ -88,26 +98,43 @@ public class LoginWindow extends JFrame {
     }
 
     private void exec(int cmd) {
+        if (reconnectFlag) {
+            if (!serverConnection.connect(serverConnection.getIp(), serverConnection.getPort())) {
+                showMsgBox("Server is not found");
+                return;
+            }
+            reconnectFlag = false;
+        }
+
         String email = emailField.getText().trim();
         String nickname = nicknameField.getText().trim();
-        String pass = passwordField.getText().trim();
+        String pass = new String(passwordField.getPassword());
 
         if (email.isEmpty() || nickname.isEmpty() || pass.isEmpty()) {
             showMsgBox("Enter all fields");
             return;
         }
 
+        crypt.update(pass.getBytes());
+        byte[] passMD5 = crypt.digest();
+        pass = DatatypeConverter.printHexBinary(passMD5).toUpperCase();
+
         try {
+            System.out.println(email + nickname + pass);
             request(cmd, email, nickname, pass);
         } catch (IOException e) {
-            e.printStackTrace();
+            showMsgBox("Server is not found");
+            reconnectFlag = true;
+            return;
         }
 
-        int response = -1;
+        int response;
         try {
             response = response();
         } catch (IOException e) {
-            e.printStackTrace();
+            showMsgBox("Server is not found");
+            reconnectFlag = true;
+            return;
         }
 
         switch (response) {
@@ -129,14 +156,17 @@ public class LoginWindow extends JFrame {
             case RESPONSE_AUTHORIZATION_ERROR_DATA_CORRECT:
                 showMsgBox("Fields uncorrected");
                 break;
-            case RESPONSE_AUTHORIZATION_ERROR_USER_NOTCREATED:
+            case RESPONSE_AUTHORIZATION_ERROR_USER_NOT_CREATED:
                 showMsgBox("This user does not exist");
                 break;
             case RESPONSE_ERROR_CODE:
                 showMsgBox("Request is uncorrected");
                 break;
-            case RESPONSE_AUTHORIZATION_ERROR_USER_AUTORIZED:
+            case RESPONSE_AUTHORIZATION_ERROR_USER_AUTHORIZED:
                 showMsgBox("This user is already authorized");
+                break;
+            default:
+                showMsgBox("Server is not found");
                 break;
         }
     }

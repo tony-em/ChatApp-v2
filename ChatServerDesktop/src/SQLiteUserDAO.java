@@ -29,10 +29,12 @@ public class SQLiteUserDAO implements UserDAO {
             ResultSet data = s.executeQuery(String.format("SELECT * FROM USERS WHERE (NICKNAME='%s' AND PASSWORD='%s' AND EMAIL='%s');", username, password, email));
             if (data.next()) {
                 System.out.println(data.getInt("ID") + data.getString("NICKNAME") + data.getString("PASSWORD"));
-                return new User(data.getInt("ID"),
-                        data.getString("NICKNAME"),
-                        data.getString("PASSWORD"),
-                        data.getString("EMAIL"));
+                int id = data.getInt("ID");
+                String s1 = data.getString("NICKNAME"),
+                        s2 = data.getString("PASSWORD"),
+                        s3 = data.getString("EMAIL");
+                helperDB.closeConnection();
+                return new User(id, s1, s2, s3);
             }
         }
 
